@@ -8,11 +8,9 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-const DEFAULT_APPLICATION_CONFIG_FILE = "./metrics-viewer.yaml"
-
 // Load Application Config file
 func LoadAppConfig(filename string) *ApplicationConfig {
-	filename, _ = homedir.Expand(DEFAULT_APPLICATION_CONFIG_FILE)
+	filename, _ = homedir.Expand(filename)
 	applicationConfig := ApplicationConfig{}
 
 	logrus.Debugf("Loading configfile: %s", filename)
