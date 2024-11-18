@@ -1,0 +1,14 @@
+settings:
+  scrape_timeout: 500
+  scrape_interval: 1
+  refresh_interval: 1
+metrics:
+  # - "controller_runtime_active_workers"
+  # - "controller_runtime_max_concurrent_reconciles"
+  # - "controller_runtime_reconcile_errors_total"
+  # - "controller_runtime_reconcile_time_seconds_count"
+  # - "workqueue_depth"
+  # - "workqueue_longest_running_processor_seconds"
+  # - "workqueue_unfinished_work_seconds"
+  # - "workqueue_retries_total"
+  - "workqueue_adds_total"

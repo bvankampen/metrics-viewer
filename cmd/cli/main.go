@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/bvankampen/metrics-viewer/internal/scraper"
 	"github.com/sirupsen/logrus"
 	"github.com/urfave/cli"
 )
@@ -16,6 +17,12 @@ var (
 func main() {
 	app := cli.NewApp()
 	app.Name = "metrics-viewer"
+	app.Usage = "a Kubernetes Metrics Viewer"
+	app.Authors = []cli.Author{
+		{Name: "Volodymyr Katkalov", Email: "volodymyr.katkalov@suse.com"},
+		{Name: "Bas van Kampen", Email: "bas.vankampen@suse.com"},
+	}
+
 	app.Version = fmt.Sprintf("%s (%s)", Version, CommitId)
 	app.Before = func(ctx *cli.Context) error {
 		if ctx.GlobalBool("debug") {
@@ -29,6 +36,18 @@ func main() {
 			Name:  "debug",
 			Usage: "Enable debug",
 		},
+		&cli.StringFlag{
+			Name:   "kubeconfig",
+			Usage:  "Kubeconfig file",
+			Value:  "~/.kube/config",
+			EnvVar: "KUBECONFIG",
+		},
+		&cli.StringFlag{
+			Name:   "config",
+			Usage:  "Config file",
+			Value:  "metrics-viewer.yaml",
+			EnvVar: "METRICS_VIEWER_CONFIG",
+		},
 	}
 	app.Action = run
 	if err := app.Run(os.Args); err != nil {
@@ -38,4 +57,7 @@ func main() {
 
 func run(ctx *cli.Context) {
 	// run the application
+	scraper := scraper.Scraper{}
+	scraper.Init(ctx)
+	scraper.Scrape()
 }
