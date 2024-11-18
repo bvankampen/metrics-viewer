@@ -8,6 +8,9 @@ all: clean build
 debug:
 	@go run cmd/cli/main.go --debug
 
+help:
+	@go run cmd/cli/main.go --help
+
 run:
 	@go run cmd/cli/main.go
 
@@ -35,4 +38,4 @@ install: clean build
 	@mkdir -p $(GOPATH)/bin
 	@cp bin/$(NAME) $(GOPATH)/bin
 
-.PHONY: all clean build build-github install run debug
+.PHONY: all clean build build-github install run debug help
