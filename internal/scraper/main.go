@@ -10,16 +10,15 @@ import (
 
 	"github.com/bvankampen/metrics-viewer/internal/config"
 	"github.com/bvankampen/metrics-viewer/internal/kubeconfig"
+	"github.com/kortschak/utter"
 	"github.com/sirupsen/logrus"
 
 	"github.com/urfave/cli"
-	// "github.com/yassinebenaid/godump"
 )
 
 func (s *Scraper) Init(ctx *cli.Context) {
 	s.ctx = *ctx
 	s.config = *config.LoadAppConfig(ctx.String("config"))
-	// godump.Dump(s.Config)
 	s.kubeConfig = *kubeconfig.LoadKubeConfig(ctx.String("kubeconfig"))
 
 	s.httpClient = http.Client{}
@@ -52,18 +51,18 @@ func (s *Scraper) parse(metrics []byte) {
 	for scanner.Scan() {
 		metricLine := scanner.Text()
 		for _, m := range s.config.Metrics {
-			if strings.HasPrefix(metricLine, "# HELP "+m) {
-				fmt.Println(metricLine)
+			if strings.HasPrefix(metricLine, "# HELP "+m) { // Description
+				s.data.AddDescription(m, metricLine)
 			}
-			if strings.HasPrefix(metricLine, "# TYPE "+m) {
-				fmt.Println(metricLine)
+			if strings.HasPrefix(metricLine, "# TYPE "+m) { // Metric Type
+				s.data.AddType(m, metricLine)
 			}
-
-			if strings.HasPrefix(metricLine, m) {
-				fmt.Println(metricLine)
+			if strings.HasPrefix(metricLine, m) { // Value
+				s.data.AddValue(m, metricLine)
 			}
 		}
 	}
+	utter.Dump(s.data)
 }
 
 func (s *Scraper) Scrape() error {
