@@ -10,8 +10,7 @@ import (
 
 	"github.com/bvankampen/metrics-viewer/internal/config"
 	"github.com/bvankampen/metrics-viewer/internal/kubeconfig"
-	"github.com/kortschak/utter"
-	"github.com/sirupsen/logrus"
+	"github.com/bvankampen/metrics-viewer/internal/realtimedata"
 
 	"github.com/urfave/cli"
 )
@@ -32,18 +31,15 @@ func (s *Scraper) Init(ctx *cli.Context) {
 	s.httpRequest = *request
 }
 
+func (s *Scraper) ScrapeInterval() int {
+	return s.config.Settings.ScrapeInterval
+}
+
 func (s *Scraper) getUrlAndToken() (string, string) {
 	currentContext := s.kubeConfig.Contexts[s.kubeConfig.CurrentContext]
 	cluster := s.kubeConfig.Clusters[currentContext.Cluster]
 	authInfo := s.kubeConfig.AuthInfos[currentContext.AuthInfo]
 	return cluster.Server, authInfo.Token
-}
-
-func (s *Scraper) Run() {
-	err := s.Scrape()
-	if err != nil {
-		logrus.Fatalf("Error scraping metrics: %v", err)
-	}
 }
 
 func (s *Scraper) parse(metrics []byte) {
@@ -62,21 +58,20 @@ func (s *Scraper) parse(metrics []byte) {
 			}
 		}
 	}
-	utter.Dump(s.data)
 }
 
-func (s *Scraper) Scrape() error {
+func (s *Scraper) Scrape() (realtimedata.RealTimeData, error) {
 	response, err := s.httpClient.Do(&s.httpRequest)
 	if err != nil {
-		return err
+		return realtimedata.RealTimeData{}, err
 	}
 	defer response.Body.Close()
 	if response.StatusCode == http.StatusOK {
 		metrics, err := io.ReadAll(response.Body)
 		if err != nil {
-			return err
+			return realtimedata.RealTimeData{}, err
 		}
 		s.parse(metrics)
 	}
-	return nil
+	return s.data, nil
 }

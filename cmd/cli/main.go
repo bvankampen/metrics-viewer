@@ -3,8 +3,10 @@ package main
 import (
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/bvankampen/metrics-viewer/internal/scraper"
+	"github.com/bvankampen/metrics-viewer/internal/ui"
 	"github.com/sirupsen/logrus"
 	"github.com/urfave/cli"
 )
@@ -56,8 +58,34 @@ func main() {
 }
 
 func run(ctx *cli.Context) {
-	// run the application
+	// initialize scraper
 	scraper := scraper.Scraper{}
 	scraper.Init(ctx)
-	scraper.Scrape()
+	scrapeTicker := time.NewTicker(time.Second * 2)
+
+	// initialize UI
+	ui := ui.UI{}
+	ui.Init(ctx)
+
+	done := make(chan bool)
+
+	go func() {
+		for {
+			select {
+			case <-done:
+				return
+			case <-scrapeTicker.C:
+				data, err := scraper.Scrape()
+				if err != nil {
+					logrus.Errorf("Error scraping metrics: %v", err)
+				}
+				ui.UpdateScreen(data)
+			}
+		}
+	}()
+
+	fmt.Println("Wait for enter key...")
+	fmt.Scanln()
+	scrapeTicker.Stop()
+	done <- true
 }
