@@ -149,39 +149,67 @@ func (tv *TableView) UpdateView(newData interface{}) {
 }
 
 func (tv *TableView) Run(observeChan <-chan interface{}) {
+	// Channel to signal termination
+	stop := make(chan struct{})
 
-	oldState, err := term.MakeRaw(int(os.Stdin.Fd()))
-	if err != nil {
-		panic(err)
-	}
-	defer term.Restore(int(os.Stdin.Fd()), oldState)
-
+	// Handle exit signals (Ctrl + C)
 	exitChan := make(chan os.Signal, 1)
 	signal.Notify(exitChan, syscall.SIGINT, syscall.SIGTERM)
+
+	// Goroutine to handle signals
 	go func() {
 		<-exitChan
-		term.Restore(int(os.Stdin.Fd()), oldState)
-		fmt.Print("\033[H\033[2J")
-		os.Exit(0)
+		fmt.Print("\033[H\033[2J") // Clear terminal
+		fmt.Println("Exiting on Ctrl+C or termination signal.")
+		close(stop) // Signal to stop the main loop
 	}()
 
+	// Configure terminal for raw input
+	oldState, err := term.MakeRaw(int(os.Stdin.Fd()))
+	if err != nil {
+		fmt.Println("Error setting terminal to raw mode:", err)
+		return
+	}
+	defer func() {
+		// Always restore terminal state
+		term.Restore(int(os.Stdin.Fd()), oldState)
+		fmt.Print("\033[H\033[2J") // Clear terminal on exit
+	}()
+
+	// Listen for data updates
 	go func() {
 		for newData := range observeChan {
 			tv.UpdateView(newData)
 		}
 		fmt.Println("Data channel closed.")
+		close(stop) // Signal to stop the main loop
 	}()
 
+	// Main loop for user input
 	for {
-		input := make([]byte, 1)
-		_, err := os.Stdin.Read(input)
-		if err != nil {
-			panic(err)
-		}
-		if input[0] == 'q' || input[0] == 'Q' {
-			term.Restore(int(os.Stdin.Fd()), oldState)
-			fmt.Print("\033[H\033[2J")
+		select {
+		case <-stop: // Exit if stop signal is received
 			return
+		default:
+			input := make([]byte, 1)
+			_, err := os.Stdin.Read(input)
+			if err != nil {
+				fmt.Println("Error reading input:", err)
+				return
+			}
+
+			// Handle Ctrl+C explicitly (byte value 0x03)
+			if input[0] == 0x03 {
+				fmt.Println("Exiting on Ctrl+C.")
+				close(stop)
+				return
+			}
+
+			// Exit on ESC (ASCII 27) or 'q'/'Q'
+			if input[0] == 27 || input[0] == 'q' || input[0] == 'Q' {
+				close(stop)
+				return
+			}
 		}
 	}
 }
