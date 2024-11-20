@@ -3,13 +3,13 @@ package kubeconfig
 import (
 	"github.com/mitchellh/go-homedir"
 	"github.com/sirupsen/logrus"
+	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
-	"k8s.io/client-go/tools/clientcmd/api"
 )
 
-func LoadKubeConfig(filename string) *api.Config {
+func LoadKubeConfig(filename string) *rest.Config {
 	filename, _ = homedir.Expand(filename)
-	kubeConfig, err := clientcmd.LoadFromFile(filename)
+	kubeConfig, err := clientcmd.BuildConfigFromFlags("", filename)
 
 	logrus.Debugf("Loading kubeconfig file: %s", filename)
 

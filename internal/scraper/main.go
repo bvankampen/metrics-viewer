@@ -3,7 +3,6 @@ package scraper
 import (
 	"bufio"
 	"bytes"
-	"fmt"
 	"io"
 	"net/http"
 	"strings"
@@ -11,6 +10,7 @@ import (
 	"github.com/bvankampen/metrics-viewer/internal/config"
 	"github.com/bvankampen/metrics-viewer/internal/kubeconfig"
 	"github.com/bvankampen/metrics-viewer/internal/realtimedata"
+	"k8s.io/client-go/rest"
 
 	"github.com/urfave/cli"
 )
@@ -18,28 +18,19 @@ import (
 func (s *Scraper) Init(ctx *cli.Context) {
 	s.ctx = *ctx
 	s.config = *config.LoadAppConfig(ctx.String("config"))
-	s.kubeConfig = *kubeconfig.LoadKubeConfig(ctx.String("kubeconfig"))
+	s.restConfig = *kubeconfig.LoadKubeConfig(ctx.String("kubeconfig"))
 
-	s.httpClient = http.Client{}
+	c, _ := rest.HTTPClientFor(&s.restConfig)
 
-	url, token := s.getUrlAndToken()
+	s.httpClient = *c
 
-	url = fmt.Sprintf("%s/metrics", url)
-
-	request, _ := http.NewRequest("GET", url, nil)
-	request.Header.Add("Authorization", "Bearer "+token)
+	request, _ := http.NewRequest("GET", s.restConfig.Host+"/metrics", nil)
+	request.Header.Add("Authorization", "Bearer "+s.restConfig.BearerToken)
 	s.httpRequest = *request
 }
 
 func (s *Scraper) ScrapeInterval() int {
 	return s.config.Settings.ScrapeInterval
-}
-
-func (s *Scraper) getUrlAndToken() (string, string) {
-	currentContext := s.kubeConfig.Contexts[s.kubeConfig.CurrentContext]
-	cluster := s.kubeConfig.Clusters[currentContext.Cluster]
-	authInfo := s.kubeConfig.AuthInfos[currentContext.AuthInfo]
-	return cluster.Server, authInfo.Token
 }
 
 func (s *Scraper) parse(metrics []byte) {
