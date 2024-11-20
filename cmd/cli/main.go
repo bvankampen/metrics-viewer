@@ -61,7 +61,7 @@ func run(ctx *cli.Context) {
 	// initialize scraper
 	scraper := scraper.Scraper{}
 	scraper.Init(ctx)
-	scrapeTicker := time.NewTicker(time.Second * 2)
+	scrapeTicker := time.NewTicker(time.Second * time.Duration(scraper.ScrapeInterval()))
 
 	// initialize UI
 	ui := ui.UI{}

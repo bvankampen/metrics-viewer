@@ -18,7 +18,7 @@ func (u *UI) UpdateScreen(data realtimedata.RealTimeData) { // placeholder funct
 			for _, label := range value.Labels {
 				fmt.Printf("  %s : %s\n", label.Label, label.Value)
 			}
-			fmt.Printf("  %s\n", value.Value)
+			fmt.Printf("  value: %s\n", value.Value)
 		}
 	}
 }

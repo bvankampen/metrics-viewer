@@ -1,7 +1,5 @@
 settings:
-  scrape_timeout: 500
   scrape_interval: 1
-  refresh_interval: 1
 metrics:
   # - apiserver_flowcontrol_rejected_requests_total
   # - apiserver_flowcontrol_current_inqueue_requests
