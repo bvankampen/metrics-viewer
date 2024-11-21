@@ -64,7 +64,6 @@ func main() {
 }
 
 func run(ctx *cli.Context) {
-
 	scraper := scraper.Scraper{}
 	scraper.Init(ctx)
 
@@ -179,7 +178,6 @@ func applyFilter(data realtimedata.RealTimeData, filter string) realtimedata.Rea
 	for _, metric := range data.Metrics {
 		filteredValues := []realtimedata.RealTimeDataMetricValue{}
 		for _, value := range metric.Values {
-
 			labelMatches := false
 			for _, label := range value.Labels {
 				if regex.MatchString(label.Label) || regex.MatchString(label.Value) {
@@ -237,24 +235,57 @@ func applySort(data realtimedata.RealTimeData, column int, ascending bool) realt
 }
 
 func labelsToString(labels []realtimedata.RealTimeDataMetricLabel) string {
-	result := ""
+	var builder strings.Builder
 	for _, label := range labels {
-		result += fmt.Sprintf("%s=%s ", label.Label, label.Value)
+		builder.WriteString(fmt.Sprintf("%s=%s ", label.Label, label.Value))
 	}
-	return strings.TrimSpace(result)
+	return strings.TrimSpace(builder.String())
 }
 
 func convertToTableRows(data realtimedata.RealTimeData) []ui.TableRow {
 	tableRows := []ui.TableRow{}
+	labelKeys := getUniqueLabelKeys(data) // Get all unique label keys sorted
+
 	for _, metric := range data.Metrics {
 		for _, value := range metric.Values {
-			labelString := labelsToString(value.Labels)
+			// Initialize labels with empty values for consistent columns
+			labels := make(map[string]string)
+			for _, key := range labelKeys {
+				labels[key] = "" // Default empty value
+			}
+
+			// Populate labels with actual data
+			for _, label := range value.Labels {
+				labels[label.Label] = label.Value
+			}
+
+			// Create and append the TableRow
 			tableRows = append(tableRows, ui.TableRow{
 				MetricName: metric.Name,
-				Label:      labelString,
+				Labels:     labels,
 				Value:      value.Value,
 			})
 		}
 	}
 	return tableRows
+}
+
+// Helper function to get all unique label keys sorted
+func getUniqueLabelKeys(data realtimedata.RealTimeData) []string {
+	labelSet := make(map[string]struct{})
+	for _, metric := range data.Metrics {
+		for _, value := range metric.Values {
+			for _, label := range value.Labels {
+				labelSet[label.Label] = struct{}{}
+			}
+		}
+	}
+
+	// Extract keys and sort them
+	labelKeys := make([]string, 0, len(labelSet))
+	for key := range labelSet {
+		labelKeys = append(labelKeys, key)
+	}
+	sort.Strings(labelKeys)
+	return labelKeys
 }

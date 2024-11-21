@@ -2,6 +2,7 @@ package ui
 
 import (
 	"log"
+	"sort"
 
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
@@ -9,8 +10,8 @@ import (
 
 type TableRow struct {
 	MetricName string
-	Label      string
-	Value      string
+	Labels     map[string]string // Universal labels as key-value pairs
+	Value      string            // Main value for the row
 }
 
 type VirtualTableView struct {
@@ -50,26 +51,6 @@ func (vt *VirtualTableView) Run(observeChan <-chan interface{}) {
 	}
 }
 
-// func (vt *VirtualTableView) Run(observeChan <-chan interface{}) {
-// 	go func() {
-// 		for newData := range observeChan {
-// 			vt.updateTable(newData) // Update table on data change
-// 			vt.app.Draw()           // Force redraw
-// 		}
-// 	}()
-
-// 	// Set initial focus on the table
-// 	vt.app.SetRoot(vt.table, true).SetFocus(vt.table)
-
-// 	// Refresh the table with an initial redraw
-// 	vt.app.Draw()
-
-// 	// Start the application
-// 	if err := vt.app.Run(); err != nil {
-// 		panic(err)
-// 	}
-// }
-
 func (vt *VirtualTableView) updateTable(data interface{}) {
 	dataMap, ok := data.(map[string]interface{})
 	if !ok {
@@ -84,15 +65,58 @@ func (vt *VirtualTableView) updateTable(data interface{}) {
 	}
 
 	vt.table.Clear()
-	vt.table.SetCell(0, 0, tview.NewTableCell("Metric").SetSelectable(false))
-	vt.table.SetCell(0, 1, tview.NewTableCell("Label").SetSelectable(false))
-	vt.table.SetCell(0, 2, tview.NewTableCell("Value").SetSelectable(false))
+	rowIndex := 0
 
-	for i, row := range uiData {
-		vt.table.SetCell(i+1, 0, tview.NewTableCell(row.MetricName))
-		vt.table.SetCell(i+1, 1, tview.NewTableCell(row.Label))
-		vt.table.SetCell(i+1, 2, tview.NewTableCell(row.Value))
+	var currentMetric string
+	labelKeys := getUniqueLabelKeysFromUIData(uiData)
+
+	for _, row := range uiData {
+		if row.MetricName != currentMetric {
+			// Add a header row for the metric
+			vt.table.SetCell(rowIndex, 0, tview.NewTableCell(row.MetricName).
+				SetSelectable(false).
+				SetTextColor(tcell.ColorYellow).
+				SetAlign(tview.AlignCenter))
+			rowIndex++
+
+			// Add column headers
+			colIndex := 0
+			for _, key := range labelKeys {
+				vt.table.SetCell(rowIndex, colIndex, tview.NewTableCell(key).SetSelectable(false))
+				colIndex++
+			}
+			vt.table.SetCell(rowIndex, colIndex, tview.NewTableCell("Value").SetSelectable(false))
+			rowIndex++
+			currentMetric = row.MetricName
+		}
+
+		// Add data rows
+		colIndex := 0
+		for _, key := range labelKeys {
+			value := row.Labels[key] // Match value with its header
+			vt.table.SetCell(rowIndex, colIndex, tview.NewTableCell(value))
+			colIndex++
+		}
+		vt.table.SetCell(rowIndex, colIndex, tview.NewTableCell(row.Value))
+		rowIndex++
 	}
+}
+
+// Helper function: Extract unique keys from TableRow data
+func getUniqueLabelKeysFromUIData(uiData []TableRow) []string {
+	labelSet := make(map[string]struct{})
+	for _, row := range uiData {
+		for key := range row.Labels {
+			labelSet[key] = struct{}{}
+		}
+	}
+
+	labelKeys := make([]string, 0, len(labelSet))
+	for key := range labelSet {
+		labelKeys = append(labelKeys, key)
+	}
+	sort.Strings(labelKeys) // Ensure consistent order
+	return labelKeys
 }
 
 func (vt *VirtualTableView) SetFilterHandler(handler func(string)) {
