@@ -6,12 +6,12 @@ import (
 	"github.com/bvankampen/metrics-viewer/internal/config"
 	"github.com/bvankampen/metrics-viewer/internal/realtimedata"
 	"github.com/urfave/cli"
-	"k8s.io/client-go/tools/clientcmd/api"
+	"k8s.io/client-go/rest"
 )
 
 type Scraper struct {
 	config      config.ApplicationConfig
-	kubeConfig  api.Config
+	restConfig  rest.Config
 	ctx         cli.Context
 	httpClient  http.Client
 	httpRequest http.Request
