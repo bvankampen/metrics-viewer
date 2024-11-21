@@ -4,8 +4,12 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"regexp"
+	"sort"
+	"strings"
 	"time"
 
+	"github.com/bvankampen/metrics-viewer/internal/realtimedata"
 	"github.com/bvankampen/metrics-viewer/internal/scraper"
 	"github.com/bvankampen/metrics-viewer/internal/ui"
 	"github.com/reactivex/rxgo/v2"
@@ -17,41 +21,6 @@ var (
 	Version  = "0.0"
 	CommitId = "dev"
 )
-
-// Transform the pipeline data
-// transformed := pipeline.
-// 	Map(ui.SafeTransform(func(value interface{}, root map[string]interface{}) (interface{}, error) {
-// 		// Transform the car name
-// 		str, ok := value.(string)
-// 		if !ok {
-// 			return nil, fmt.Errorf("value is not a string: %v", value)
-// 		}
-// 		return str + " Jr.", nil
-// 	}, "data.cars[0].details.name")).
-// 	Map(ui.SafeTransform(func(value interface{}, root map[string]interface{}) (interface{}, error) {
-// 		// Convert timestamp to human-readable format
-// 		currentTime, ok := root["currentTime"].(int64)
-// 		if !ok {
-// 			return nil, fmt.Errorf("currentTime is missing or invalid in root structure")
-// 		}
-// 		timestamp, ok := value.(int64)
-// 		if !ok {
-// 			return nil, fmt.Errorf("value is not a valid timestamp: %v", value)
-// 		}
-// 		return ui.ToHumanAgo(timestamp, currentTime)
-// 	}, "data.cars[0].details.timestamp")).
-// 	Map(ui.SafeTransform(func(value interface{}, root map[string]interface{}) (interface{}, error) {
-// 		// Format the design date
-// 		designedOn, ok := value.(int64)
-// 		if !ok {
-// 			return nil, fmt.Errorf("value is not a valid timestamp: %v", value)
-// 		}
-// 		return ui.ToISO8601(designedOn), nil
-// 	}, "data.cars[0].details.designed_on"))
-
-// transformed.DoOnNext(func(i interface{}) {
-// 	fmt.Printf("Pipeline Output: %+v\n", i)
-// })
 
 func main() {
 	app := cli.NewApp()
@@ -96,19 +65,29 @@ func main() {
 
 func run(ctx *cli.Context) {
 
-	// Initialize scraper
 	scraper := scraper.Scraper{}
 	scraper.Init(ctx)
-	// Timer observable
+
 	timer := rxgo.Interval(rxgo.WithDuration(time.Duration(scraper.ScrapeInterval()) * time.Second)).
 		Map(func(ctx context.Context, _ interface{}) (interface{}, error) {
 			return time.Now().Unix(), nil
 		})
 
-	// Initialize UI TableView
-	tv := ui.NewTableView(nil)
+	tv := ui.NewVirtualTableView()
 
-	// Create a scraper observable
+	filterChan := make(chan rxgo.Item)
+	sortChan := make(chan rxgo.Item)
+	filterObservable := rxgo.FromChannel(filterChan)
+	sortObservable := rxgo.FromChannel(sortChan)
+
+	go func() {
+		filterChan <- rxgo.Of("")
+		sortChan <- rxgo.Of(map[string]interface{}{
+			"column":    0,
+			"ascending": true,
+		})
+	}()
+
 	dataSource := rxgo.Create([]rxgo.Producer{
 		func(ctx context.Context, ch chan<- rxgo.Item) {
 			for {
@@ -119,44 +98,163 @@ func run(ctx *cli.Context) {
 					continue
 				}
 				ch <- rxgo.Of(data)
-				time.Sleep(1 * time.Second) // Adjust scrape interval as needed
+				time.Sleep(1 * time.Second)
 			}
 		},
 	})
 
-	// Combine dataSource and timer into a pipeline
 	pipeline := rxgo.CombineLatest(
 		func(i ...interface{}) interface{} {
 			return map[string]interface{}{
 				"data":        i[0],
 				"currentTime": i[1],
+				"filterState": i[2],
+				"sortState":   i[3],
 			}
 		},
-		[]rxgo.Observable{dataSource, timer},
-	)
+		[]rxgo.Observable{
+			dataSource,
+			timer,
+			filterObservable,
+			sortObservable,
+		},
+	).Map(func(ctx context.Context, item interface{}) (interface{}, error) {
+		vMap := item.(map[string]interface{})
+		originalData := vMap["data"].(realtimedata.RealTimeData)
+		filter := vMap["filterState"].(string)
+		sortConfig := vMap["sortState"].(map[string]interface{})
+		sortColumn := sortConfig["column"].(int)
+		sortAsc := sortConfig["ascending"].(bool)
 
-	// Transform the RxGo channel for TableView
+		filteredData := applyFilter(originalData, filter)
+		filteredSortedData := applySort(filteredData, sortColumn, sortAsc)
+
+		vMap["filteredSortedData"] = filteredSortedData
+		return vMap, nil
+	}).Map(func(ctx context.Context, item interface{}) (interface{}, error) {
+		vMap := item.(map[string]interface{})
+		filteredSortedData := vMap["filteredSortedData"].(realtimedata.RealTimeData)
+
+		uiData := convertToTableRows(filteredSortedData)
+		vMap["uiData"] = uiData
+		return vMap, nil
+	})
+
 	observeChan := make(chan interface{})
 	go func() {
 		for item := range pipeline.Observe() {
 			if item.E != nil {
-				fmt.Println("Error in pipeline.Observe():", item.E)
+				logrus.Errorf("Error in pipeline.Observe(): %v", item.E)
 				continue
 			}
-			vMap, ok := item.V.(map[string]interface{})
-			if !ok {
-				fmt.Println("Error: unexpected data format in pipeline:", item.V)
-				continue
-			}
-
-			// Extract "data" from combined map and send to observeChan
-			data := vMap["data"]
-			observeChan <- data
+			observeChan <- item.V
 		}
-		fmt.Println("pipeline.Observe() channel closed")
 		close(observeChan)
 	}()
 
-	// Run the TableView with dynamic updates
+	tv.SetFilterHandler(func(newFilter string) {
+		filterChan <- rxgo.Of(newFilter)
+	})
+	tv.SetSortHandler(func(column int, ascending bool) {
+		sortChan <- rxgo.Of(map[string]interface{}{
+			"column":    column,
+			"ascending": ascending,
+		})
+	})
+
 	tv.Run(observeChan)
+}
+
+func applyFilter(data realtimedata.RealTimeData, filter string) realtimedata.RealTimeData {
+	if filter == "" {
+		return data
+	}
+	regex, err := regexp.Compile(filter)
+	if err != nil {
+		logrus.Errorf("Invalid filter regex: %v", err)
+		return data
+	}
+
+	filteredMetrics := []realtimedata.RealTimeDataMetric{}
+	for _, metric := range data.Metrics {
+		filteredValues := []realtimedata.RealTimeDataMetricValue{}
+		for _, value := range metric.Values {
+
+			labelMatches := false
+			for _, label := range value.Labels {
+				if regex.MatchString(label.Label) || regex.MatchString(label.Value) {
+					labelMatches = true
+					break
+				}
+			}
+			if regex.MatchString(metric.Name) || regex.MatchString(value.Value) || labelMatches {
+				filteredValues = append(filteredValues, value)
+			}
+		}
+		if len(filteredValues) > 0 {
+			filteredMetrics = append(filteredMetrics, realtimedata.RealTimeDataMetric{
+				Name:        metric.Name,
+				Description: metric.Description,
+				Type:        metric.Type,
+				Values:      filteredValues,
+			})
+		}
+	}
+
+	return realtimedata.RealTimeData{Metrics: filteredMetrics}
+}
+
+func applySort(data realtimedata.RealTimeData, column int, ascending bool) realtimedata.RealTimeData {
+	sortedMetrics := []realtimedata.RealTimeDataMetric{}
+	for _, metric := range data.Metrics {
+		values := metric.Values
+		sort.Slice(values, func(i, j int) bool {
+			var a, b string
+			switch column {
+			case 0:
+				a, b = metric.Name, metric.Name
+			case 1:
+				aLabels := labelsToString(values[i].Labels)
+				bLabels := labelsToString(values[j].Labels)
+				a, b = aLabels, bLabels
+			case 2:
+				a, b = values[i].Value, values[j].Value
+			}
+			if ascending {
+				return a < b
+			}
+			return a > b
+		})
+		sortedMetrics = append(sortedMetrics, realtimedata.RealTimeDataMetric{
+			Name:        metric.Name,
+			Description: metric.Description,
+			Type:        metric.Type,
+			Values:      values,
+		})
+	}
+
+	return realtimedata.RealTimeData{Metrics: sortedMetrics}
+}
+
+func labelsToString(labels []realtimedata.RealTimeDataMetricLabel) string {
+	result := ""
+	for _, label := range labels {
+		result += fmt.Sprintf("%s=%s ", label.Label, label.Value)
+	}
+	return strings.TrimSpace(result)
+}
+
+func convertToTableRows(data realtimedata.RealTimeData) []ui.TableRow {
+	tableRows := []ui.TableRow{}
+	for _, metric := range data.Metrics {
+		for _, value := range metric.Values {
+			labelString := labelsToString(value.Labels)
+			tableRows = append(tableRows, ui.TableRow{
+				MetricName: metric.Name,
+				Label:      labelString,
+				Value:      value.Value,
+			})
+		}
+	}
+	return tableRows
 }

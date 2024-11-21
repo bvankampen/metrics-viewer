@@ -1,215 +1,147 @@
 package ui
 
 import (
-	"fmt"
-	"os"
-	"os/signal"
-	"strings"
-	"sync"
-	"syscall"
+	"log"
 
-	"github.com/bvankampen/metrics-viewer/internal/realtimedata"
-	"golang.org/x/term"
+	"github.com/gdamore/tcell/v2"
+	"github.com/rivo/tview"
 )
 
-type TableView struct {
-	CurrentView interface{}
-	mu          sync.Mutex
+type TableRow struct {
+	MetricName string
+	Label      string
+	Value      string
 }
 
-func NewTableView(initialData interface{}) *TableView {
-	if initialData == nil {
-		initialData = realtimedata.RealTimeData{}
-	}
-	return &TableView{
-		CurrentView: initialData,
+type VirtualTableView struct {
+	app           *tview.Application
+	table         *tview.Table
+	filterHandler func(string)
+	sortHandler   func(column int, ascending bool)
+	sortAsc       bool
+	sortColumn    int
+}
+
+func NewVirtualTableView() *VirtualTableView {
+	app := tview.NewApplication()
+	table := tview.NewTable().
+		SetBorders(true).
+		SetFixed(1, 0)
+
+	return &VirtualTableView{
+		app:        app,
+		table:      table,
+		sortAsc:    true,
+		sortColumn: 0,
 	}
 }
 
-func (tv *TableView) RenderTable() {
-	tv.mu.Lock()
-	defer tv.mu.Unlock()
+func (vt *VirtualTableView) Run(observeChan <-chan interface{}) {
+	go func() {
+		for data := range observeChan {
+			vt.updateTable(data)
+			vt.app.Draw()
+		}
+	}()
 
-	width, _, err := term.GetSize(int(os.Stdout.Fd()))
-	if err != nil {
-		width = 80
+	vt.app.SetInputCapture(vt.handleKeyEvents)
+	if err := vt.app.SetRoot(vt.table, true).Run(); err != nil {
+		panic(err)
 	}
+}
 
-	fmt.Print("\033[H\033[2J")
+// func (vt *VirtualTableView) Run(observeChan <-chan interface{}) {
+// 	go func() {
+// 		for newData := range observeChan {
+// 			vt.updateTable(newData) // Update table on data change
+// 			vt.app.Draw()           // Force redraw
+// 		}
+// 	}()
 
-	if tv.CurrentView == nil {
-		fmt.Println("No data available.")
+// 	// Set initial focus on the table
+// 	vt.app.SetRoot(vt.table, true).SetFocus(vt.table)
+
+// 	// Refresh the table with an initial redraw
+// 	vt.app.Draw()
+
+// 	// Start the application
+// 	if err := vt.app.Run(); err != nil {
+// 		panic(err)
+// 	}
+// }
+
+func (vt *VirtualTableView) updateTable(data interface{}) {
+	dataMap, ok := data.(map[string]interface{})
+	if !ok {
+		log.Println("Invalid data format: expected map[string]interface{}.")
 		return
 	}
 
-	switch data := tv.CurrentView.(type) {
-	case realtimedata.RealTimeData:
-
-		for _, metric := range data.Metrics {
-			tv.renderMetricTable(metric, width)
-			fmt.Println()
-		}
-	default:
-		fmt.Println("Unsupported data type for rendering.")
-	}
-}
-
-func (tv *TableView) stringifyLabels(labels []realtimedata.RealTimeDataMetricLabel) string {
-	var parts []string
-	for _, label := range labels {
-		parts = append(parts, fmt.Sprintf("%s {%s}", label.Label, label.Value))
-	}
-	return strings.Join(parts, ", ")
-}
-
-func (tv *TableView) calculateWidths(headers []string, rows [][]string, terminalWidth int) []int {
-	widths := make([]int, len(headers))
-	for i, header := range headers {
-		widths[i] = len(header)
-	}
-	for _, row := range rows {
-		for i, cell := range row {
-			if len(cell) > widths[i] {
-				widths[i] = len(cell)
-			}
-		}
-	}
-
-	totalWidth := len(widths) + 3
-	for _, w := range widths {
-		totalWidth += w
-	}
-
-	if totalWidth > terminalWidth {
-		excess := totalWidth - terminalWidth
-		reduce := excess / len(widths)
-		for i := range widths {
-			widths[i] -= reduce
-			if widths[i] < 10 {
-				widths[i] = 10
-			}
-		}
-	}
-
-	return widths
-}
-
-func (tv *TableView) printRow(columns []string, widths []int) {
-	fmt.Print("\r")
-	row := "|"
-	for i, col := range columns {
-		cell := col
-		if len(col) > widths[i] {
-			cell = col[:widths[i]-3] + "..."
-		}
-		row += " " + fmt.Sprintf("%-*s", widths[i], cell) + " |"
-	}
-	fmt.Println(row)
-}
-
-func (tv *TableView) printSeparator(widths []int) {
-	fmt.Print("\r")
-	separator := "+"
-	for _, width := range widths {
-		separator += strings.Repeat("-", width+2) + "+"
-	}
-	fmt.Println(separator)
-}
-
-func (tv *TableView) renderMetricTable(metric realtimedata.RealTimeDataMetric, terminalWidth int) {
-
-	fmt.Print("\r")
-	fmt.Printf("<%s> %s:\n", metric.Name, metric.Description)
-
-	rows := [][]string{}
-	for _, value := range metric.Values {
-		labelString := tv.stringifyLabels(value.Labels)
-		rows = append(rows, []string{labelString, value.Value})
-	}
-
-	headers := []string{"Label", "Value"}
-	widths := tv.calculateWidths(headers, rows, terminalWidth)
-
-	tv.printSeparator(widths)
-	tv.printRow(headers, widths)
-	tv.printSeparator(widths)
-	for _, row := range rows {
-		tv.printRow(row, widths)
-	}
-	tv.printSeparator(widths)
-
-	fmt.Println()
-}
-
-func (tv *TableView) UpdateView(newData interface{}) {
-	tv.mu.Lock()
-	tv.CurrentView = newData
-	tv.mu.Unlock()
-	tv.RenderTable()
-}
-
-func (tv *TableView) Run(observeChan <-chan interface{}) {
-	// Channel to signal termination
-	stop := make(chan struct{})
-
-	// Handle exit signals (Ctrl + C)
-	exitChan := make(chan os.Signal, 1)
-	signal.Notify(exitChan, syscall.SIGINT, syscall.SIGTERM)
-
-	// Goroutine to handle signals
-	go func() {
-		<-exitChan
-		fmt.Print("\033[H\033[2J") // Clear terminal
-		fmt.Println("Exiting on Ctrl+C or termination signal.")
-		close(stop) // Signal to stop the main loop
-	}()
-
-	// Configure terminal for raw input
-	oldState, err := term.MakeRaw(int(os.Stdin.Fd()))
-	if err != nil {
-		fmt.Println("Error setting terminal to raw mode:", err)
+	uiData, ok := dataMap["uiData"].([]TableRow)
+	if !ok {
+		log.Println("Invalid data format for uiData: expected []TableRow.")
 		return
 	}
-	defer func() {
-		// Always restore terminal state
-		term.Restore(int(os.Stdin.Fd()), oldState)
-		fmt.Print("\033[H\033[2J") // Clear terminal on exit
-	}()
 
-	// Listen for data updates
-	go func() {
-		for newData := range observeChan {
-			tv.UpdateView(newData)
-		}
-		fmt.Println("Data channel closed.")
-		close(stop) // Signal to stop the main loop
-	}()
+	vt.table.Clear()
+	vt.table.SetCell(0, 0, tview.NewTableCell("Metric").SetSelectable(false))
+	vt.table.SetCell(0, 1, tview.NewTableCell("Label").SetSelectable(false))
+	vt.table.SetCell(0, 2, tview.NewTableCell("Value").SetSelectable(false))
 
-	// Main loop for user input
-	for {
-		select {
-		case <-stop: // Exit if stop signal is received
-			return
-		default:
-			input := make([]byte, 1)
-			_, err := os.Stdin.Read(input)
-			if err != nil {
-				fmt.Println("Error reading input:", err)
-				return
+	for i, row := range uiData {
+		vt.table.SetCell(i+1, 0, tview.NewTableCell(row.MetricName))
+		vt.table.SetCell(i+1, 1, tview.NewTableCell(row.Label))
+		vt.table.SetCell(i+1, 2, tview.NewTableCell(row.Value))
+	}
+}
+
+func (vt *VirtualTableView) SetFilterHandler(handler func(string)) {
+	vt.filterHandler = handler
+}
+
+func (vt *VirtualTableView) SetSortHandler(handler func(column int, ascending bool)) {
+	vt.sortHandler = handler
+}
+
+func (vt *VirtualTableView) handleKeyEvents(event *tcell.EventKey) *tcell.EventKey {
+	switch event.Rune() {
+	case 'q':
+		vt.app.Stop()
+	case '1':
+		vt.ToggleSort(0)
+	case '2':
+		vt.ToggleSort(1)
+	case '3':
+		vt.ToggleSort(2)
+	case '/':
+		vt.openFilterInput()
+	}
+	return event
+}
+
+func (vt *VirtualTableView) openFilterInput() {
+	inputField := tview.NewInputField()
+	inputField.
+		SetLabel("Filter (regex): ").
+		SetFieldWidth(30).
+		SetDoneFunc(func(key tcell.Key) {
+			if key == tcell.KeyEnter {
+				text := inputField.GetText()
+				if vt.filterHandler != nil {
+					vt.filterHandler(text)
+				}
 			}
+			vt.app.SetRoot(vt.table, true).SetFocus(vt.table)
+		})
+	layout := tview.NewFlex().SetDirection(tview.FlexRow).
+		AddItem(vt.table, 0, 1, false).
+		AddItem(inputField, 1, 0, true)
+	vt.app.SetRoot(layout, true).SetFocus(inputField)
+}
 
-			// Handle Ctrl+C explicitly (byte value 0x03)
-			if input[0] == 0x03 {
-				fmt.Println("Exiting on Ctrl+C.")
-				close(stop)
-				return
-			}
-
-			// Exit on ESC (ASCII 27) or 'q'/'Q'
-			if input[0] == 27 || input[0] == 'q' || input[0] == 'Q' {
-				close(stop)
-				return
-			}
-		}
+func (vt *VirtualTableView) ToggleSort(column int) {
+	vt.sortAsc = !vt.sortAsc
+	if vt.sortHandler != nil {
+		vt.sortHandler(column, vt.sortAsc)
 	}
 }
