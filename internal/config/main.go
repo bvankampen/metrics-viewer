@@ -1,6 +1,7 @@
 package config
 
 import (
+	"errors"
 	"os"
 
 	"github.com/mitchellh/go-homedir"
@@ -12,6 +13,15 @@ import (
 func LoadAppConfig(filename string) *ApplicationConfig {
 	filename, _ = homedir.Expand(filename)
 	applicationConfig := ApplicationConfig{}
+
+	_, err := os.Stat(filename) // create new config is not exists
+	if errors.Is(err, os.ErrNotExist) {
+		err := os.WriteFile(filename, []byte(DEFAULT_CONFIG), 0600)
+		if err != nil {
+			logrus.Fatalf("Unable to create new configuration file: %v", err)
+		}
+
+	}
 
 	logrus.Debugf("Loading configfile: %s", filename)
 

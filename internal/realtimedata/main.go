@@ -45,7 +45,7 @@ func (d *RealTimeData) AddValue(metric string, line string) {
 	labels := strings.ReplaceAll(l[0], metric, " ")
 	labels = strings.TrimSpace(labels)
 
-	labels = labels[strings.Index(labels, "{")+1 : strings.Index(labels, "}")-1]
+	labels = labels[strings.Index(labels, "{")+1 : strings.Index(labels, "}")]
 
 	value := l[1]
 
@@ -70,6 +70,7 @@ func (d *RealTimeData) AddValue(metric string, line string) {
 	} else {
 		newLabels := []RealTimeDataMetricLabel{}
 		for _, ll := range strings.Split(labels, ",") {
+			ll = strings.ReplaceAll(ll, "\"", "")
 			label := strings.Split(ll, "=")
 			newLabels = append(newLabels, RealTimeDataMetricLabel{
 				Label: label[0],
