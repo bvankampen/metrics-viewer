@@ -1,2 +1,4 @@
 bin/**
 metrics-viewer
+
+dist/

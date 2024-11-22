@@ -1,7 +1,7 @@
 COMMIT_ID=$(shell git rev-parse --short HEAD)
 VERSION=$(shell cat VERSION)
 
-NAME=metric-viewer
+NAME=metrics-viewer
 
 all: clean build
 

@@ -1,9 +1,0 @@
-settings:
-  scrape_interval: 1
-metrics:
-  # - apiserver_flowcontrol_rejected_requests_total
-  # - apiserver_flowcontrol_current_inqueue_requests
-  # - apiserver_flowcontrol_request_wait_duration_seconds
-  # - apiserver_flowcontrol_priority_level_seat_utilization
-  # - apiserver_flowcontrol_current_limit_seats
-  - rest_client_requests_total
