@@ -1,5 +1,5 @@
 #!/bin/bash
 
-export GITHUB_TOKEN=$GORELEASE_GITHUB_TOKEN
+export GITHUB_TOKEN=$GORELEASER_GITHUB_TOKEN
 
-goreleaser release clean
+goreleaser release --clean
