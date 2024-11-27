@@ -46,6 +46,10 @@ func (ui *UI) Run(observeChan <-chan interface{}) {
 	}
 }
 
+func (ui *UI) Stop() {
+	ui.app.Stop()
+}
+
 func (ui *UI) updateTable(data interface{}) {
 	dataMap, ok := data.(map[string]interface{})
 	if !ok {

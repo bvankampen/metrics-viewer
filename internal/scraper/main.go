@@ -3,6 +3,7 @@ package scraper
 import (
 	"bufio"
 	"bytes"
+	"fmt"
 	"io"
 	"net/http"
 	"strings"
@@ -63,6 +64,8 @@ func (s *Scraper) Scrape() (realtimedata.RealTimeData, error) {
 			return realtimedata.RealTimeData{}, err
 		}
 		s.parse(metrics)
+	} else {
+		return realtimedata.RealTimeData{}, fmt.Errorf("unable to get metrics data http error %s", response.Status)
 	}
 	return s.data, nil
 }

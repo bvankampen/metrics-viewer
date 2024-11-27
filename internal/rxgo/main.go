@@ -46,7 +46,7 @@ func Run(ctx *cli.Context) {
 				data, err := scraper.Scrape()
 				if err != nil {
 					ch <- rxgo.Error(err)
-					logrus.Errorf("Error scraping metrics: %v", err)
+					ui.Stop() // Stop UI to disable fatal errors.
 					continue
 				}
 				ch <- rxgo.Of(data)
